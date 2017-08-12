@@ -7,8 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/KristinaEtc/config"
 	_ "github.com/KristinaEtc/slflog"
+
+	"github.com/KristinaEtc/config"
 	"github.com/ventu-io/slf"
 )
 
@@ -24,9 +25,8 @@ var (
 	Version    string
 )
 
-// ConfFile is a file with all program options
-type ConfFile struct {
-	Name        string
+// JiraConf stores all configurations about jira request
+type JiraConf struct {
 	Address     string
 	User        string
 	Password    string
@@ -34,19 +34,37 @@ type ConfFile struct {
 	ProjectName string
 }
 
-var globalOpt = ConfFile{
-	Name:        "of-the-day program",
-	Address:     "localhost",
-	User:        "guest",
-	Password:    "guest",
-	Path:        "/rest/api/2/user/assignable/search?project=",
-	ProjectName: "MyProject",
+// ConfFile is a file with all program options
+type ConfFile struct {
+	Name     string
+	Choosing string
+	Jira     JiraConf
+}
+
+var globalConf = ConfFile{
+	Name:     "of-the-day program",
+	Choosing: "The fool",
+	Jira: JiraConf{
+		Address:     "localhost",
+		User:        "guest",
+		Password:    "guest",
+		Path:        "/rest/api/2/user/assignable/search?project=",
+		ProjectName: "MyProject",
+	},
 }
 
 type responceBody []colleague
 
 type colleague struct {
 	DisplayName string `json:"displayName"`
+}
+
+func choose(scopeTable map[string]int) string {
+	// TODO: choose graceful with metrics considering
+	for k := range scopeTable {
+		return k
+	}
+	return ""
 }
 
 func initScopeTable(colleagues []colleague) (scopeTable map[string]int) {
@@ -58,8 +76,8 @@ func initScopeTable(colleagues []colleague) (scopeTable map[string]int) {
 	return
 }
 
-func getColleagues() (responceBody, error) {
-	uri := globalOpt.Address + globalOpt.Path + globalOpt.ProjectName
+func getColleagues(conf JiraConf) (responceBody, error) {
+	uri := conf.Address + conf.Path + conf.ProjectName
 	log.Debugf("URI= %s", uri)
 
 	req, err := http.NewRequest("GET", uri, nil)
@@ -67,7 +85,7 @@ func getColleagues() (responceBody, error) {
 		return nil, fmt.Errorf("creating a newrequest [%s]: %s", uri, err.Error())
 	}
 
-	req.SetBasicAuth(globalOpt.User, globalOpt.Password)
+	req.SetBasicAuth(conf.User, conf.Password)
 	req.Header.Add("Content-Type", "application/json")
 
 	c := http.Client{}
@@ -95,8 +113,8 @@ func getColleagues() (responceBody, error) {
 }
 
 func main() {
-	config.ReadGlobalConfig(&globalOpt, "template options")
-	log.Infof("%s", globalOpt.Name)
+	config.ReadGlobalConfig(&globalConf, "of-the-day")
+	log.Infof("%s", globalConf.Name)
 	log.Error("----------------------------------------------")
 
 	log.Infof("BuildDate=%s\n", BuildDate)
@@ -106,13 +124,16 @@ func main() {
 	log.Infof("GitSummary=%s\n", GitSummary)
 	log.Infof("VERSION=%s\n", Version)
 
-	colleagues, err := getColleagues()
+	colleagues, err := getColleagues(globalConf.Jira)
 	if err != nil {
-		log.Errorf("Getting colleagues from project %s: %s", globalOpt.ProjectName, err.Error())
+		log.Errorf("Getting colleagues from project %s: %s", globalConf.Jira.ProjectName, err.Error())
 		return
 	}
-	log.Infof("%+v", colleagues)
 
 	scopeTable := initScopeTable(colleagues)
-	log.Infof("Scope table: %+v", scopeTable)
+	log.Debugf("Scope table: %+v", scopeTable)
+
+	winner := choose(scopeTable)
+	log.Infof("%s of the day is... %s. GRATS!", globalConf.Choosing, winner)
+
 }
